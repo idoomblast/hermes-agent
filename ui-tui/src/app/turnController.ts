@@ -447,7 +447,14 @@ class TurnController {
       this.reasoningSegmentIndex = this.segmentMessages.length
       this.segmentMessages = [...this.segmentMessages, msg]
     } else {
-      this.segmentMessages = this.segmentMessages.map((item, i) => (i === this.reasoningSegmentIndex ? msg : item))
+      const tail = this.segmentMessages[this.segmentMessages.length - 1]
+
+      if (tail && isToolShelfMessage(tail)) {
+        this.reasoningSegmentIndex = this.segmentMessages.length
+        this.segmentMessages = [...this.segmentMessages, msg]
+      } else {
+        this.segmentMessages = this.segmentMessages.map((item, i) => (i === this.reasoningSegmentIndex ? msg : item))
+      }
     }
 
     patchTurnState({ streamSegments: this.segmentMessages })
@@ -853,6 +860,14 @@ class TurnController {
 
     if (!this.activeReasoningText.trim() && this.pendingSegmentTools.length) {
       this.flushStreamingSegment()
+    }
+
+    if (this.activeReasoningText.trim() && this.reasoningSegmentIndex !== null) {
+      const tail = this.segmentMessages[this.segmentMessages.length - 1]
+
+      if (tail && isToolShelfMessage(tail)) {
+        this.closeReasoningSegment()
+      }
     }
 
     this.reasoningText += text

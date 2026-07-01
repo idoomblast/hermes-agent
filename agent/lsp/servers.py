@@ -234,6 +234,12 @@ def _root_or_workspace(file_path: str, workspace: str, markers: Sequence[str], e
 
 
 def _spawn_pyright(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
+    """Spawn the Python language server.
+
+    Supports full-command overrides, e.g. ``command: ["ty", "server"]``,
+    in which case the override's extra args replace the default
+    ``--stdio`` flag.
+    """
     bin_path = _resolve_override(ctx, "pyright") or _which(
         "pyright-langserver", "pyright"
     )
@@ -242,6 +248,13 @@ def _spawn_pyright(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
         bin_path = try_install("pyright", ctx.install_strategy)
         if bin_path is None:
             return None
+    # If the user provided a full-command override (e.g. ``["ty", "server"]``),
+    # use its args instead of the default ``--stdio``.
+    override_cmd = ctx.binary_overrides.get("pyright")
+    if override_cmd and len(override_cmd) > 1:
+        command = [bin_path] + list(override_cmd[1:])
+    else:
+        command = [bin_path, "--stdio"]
     # If we got the cli ``pyright``, the langserver is its sibling.
     base = os.path.basename(bin_path)
     if base in {"pyright", "pyright.exe"}:
@@ -257,7 +270,7 @@ def _spawn_pyright(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
     if "pyright" in ctx.init_overrides:
         init.update(ctx.init_overrides["pyright"])
     return SpawnSpec(
-        command=[bin_path, "--stdio"],
+        command=command,
         workspace_root=root,
         cwd=root,
         env=ctx.env_overrides.get("pyright", {}),
@@ -809,10 +822,20 @@ def hermes_lsp_session_dir() -> str:
 
 
 def _resolve_override(ctx: ServerContext, server_id: str) -> Optional[str]:
-    """User can pin a binary path in config."""
+    """Resolve a user-configured binary override, or None.
+
+    Accepts both filesystem paths and PATH-resolvable commands so a
+    config like ``command: ["ty", "server"]`` works the same as
+    ``command: ["/absolute/path/to/some-lsp"]``.
+    """
     override = ctx.binary_overrides.get(server_id)
-    if override and override[0] and os.path.exists(override[0]):
+    if not override or not override[0]:
+        return None
+    if os.path.exists(override[0]):
         return override[0]
+    resolved = shutil.which(override[0])
+    if resolved:
+        return resolved
     return None
 
 

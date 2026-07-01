@@ -168,9 +168,22 @@ def _simple_spawn(server_id: str, which: Sequence[str], args: Sequence[str] = ()
 # ---- bespoke spawn builders ----
 
 def _spawn_pyright(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
+    """Spawn the Python language server.
+
+    Supports full-command overrides, e.g. ``command: ["ty", "server"]``,
+    in which case the override's extra args replace the default
+    ``--stdio`` flag.
+    """
     bin_path = _find_binary(ctx, "pyright", ("pyright-langserver", "pyright"), "pyright")
     if bin_path is None:
         return None
+    # If the user provided a full-command override (e.g. ``["ty", "server"]``),
+    # use its args instead of the default ``--stdio``.
+    override_cmd = ctx.binary_overrides.get("pyright")
+    if override_cmd and len(override_cmd) > 1:
+        command = [bin_path] + list(override_cmd[1:])
+    else:
+        command = [bin_path, "--stdio"]
     # If we got the cli ``pyright``, the langserver is its sibling — same suffix, since on Windows
     # the bare sibling is npm's unrunnable POSIX shim.
     stem, suffix = os.path.splitext(os.path.basename(bin_path))
@@ -178,10 +191,11 @@ def _spawn_pyright(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
         sibling = os.path.join(os.path.dirname(bin_path), f"pyright-langserver{suffix}")
         if os.path.exists(sibling):
             bin_path = sibling
+            command[0] = bin_path
     # Point pyright at the project venv; its default "python on PATH" rarely is.  Pyright executes
     # this interpreter, so a checkout's own venv is only used when the workspace is trusted.
     py = _detect_python(root if ctx.trusted else None)
-    return _make_spec(root, ctx, "pyright", [bin_path, "--stdio"], {"python": {"pythonPath": py}} if py else {})
+    return _make_spec(root, ctx, "pyright", command, {"python": {"pythonPath": py}} if py else {})
 
 
 def _detect_python(root: Optional[str]) -> Optional[str]:

@@ -3000,6 +3000,46 @@ BROWSER_TOOL_SCHEMAS = [
         }
     },
     {
+        "name": "browser_network",
+        "description": "Inspect captured network requests for the current browser session. Use action='requests' to list requests, action='request' with a request_id to view full request/response detail, or action='clear' to reset the capture buffer.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["requests", "request", "clear"], "default": "requests", "description": "Network action to perform"},
+                "filter": {"type": "string", "description": "Optional URL substring or pattern filter"},
+                "request_id": {"type": "string", "description": "Request ID to fetch full detail for when action='request'"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "browser_har",
+        "description": "Record HAR-format network traffic. Start recording before interactions, then stop to retrieve or save the HAR data.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["start", "stop"], "description": "Start or stop HAR recording"},
+                "path": {"type": "string", "description": "Optional local path to save HAR data when stopping"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "browser_route",
+        "description": "Add or remove request interception rules for the current browser session.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["route", "unroute"], "description": "Add or remove a routing rule"},
+                "url_pattern": {"type": "string", "description": "Glob URL pattern to match"},
+                "abort": {"type": "boolean", "default": False, "description": "Abort matching requests"},
+                "body": {"type": "string", "description": "Optional response body for matching requests"},
+                "resource_type": {"type": "string", "description": "Optional resource-type filter"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
         "name": "browser_console",
         "description": "Get browser console output and JavaScript errors from the current page. Returns console.log/warn/error/info messages and uncaught JS exceptions. Use this to detect silent JavaScript errors, failed API calls, and application warnings. Requires browser_navigate to be called first. When 'expression' is provided, evaluates JavaScript in the page context and returns the result — use this for DOM inspection, reading page state, or extracting data programmatically.",
         "parameters": {
@@ -4855,6 +4895,98 @@ def _blocked_private_page_action(effective_task_id: str, action: str) -> Optiona
     }, ensure_ascii=False)
 
 
+def _network_camofox_not_supported(tool_name: str) -> str:
+    return json.dumps({
+        "success": False,
+        "error": f"{tool_name} is not supported by the Camofox backend",
+    })
+
+
+def _network_build_cmd(action: str, *positional: Optional[str], **flags):
+    """Build an agent-browser ``network`` subcommand invocation."""
+    args = [action]
+    args.extend(str(value) for value in positional if value is not None and str(value) != "")
+    for flag, value in flags.items():
+        option = f"--{flag.replace('_', '-')}"
+        if value is True:
+            args.append(option)
+        elif value not in (None, "", False):
+            args.extend([option, str(value)])
+    return "network", args
+
+
+def browser_network(action: str = "requests", filter: Optional[str] = None, request_id: Optional[str] = None, task_id: Optional[str] = None) -> str:
+    """Inspect captured browser network requests."""
+    if _is_camofox_mode():
+        return _network_camofox_not_supported("browser_network")
+    action = (action or "requests").strip().lower()
+    if action not in {"requests", "request", "clear"}:
+        return json.dumps({"success": False, "error": "action must be 'requests', 'request', or 'clear'"})
+    if action == "request" and not request_id:
+        return json.dumps({"success": False, "error": "request_id is required for action='request'"})
+    key = _last_session_key(task_id or "default")
+    if action == "clear":
+        cmd, args = _network_build_cmd("requests", clear=True)
+    elif action == "request":
+        cmd, args = _network_build_cmd("request", request_id)
+    else:
+        cmd, args = _network_build_cmd("requests", filter=filter)
+    result = _run_browser_command(key, cmd, args)
+    response = {"success": bool(result.get("success")), "action": action}
+    if filter:
+        response["filter"] = filter
+    if request_id:
+        response["request_id"] = request_id
+    if result.get("success"):
+        data = result.get("data", {})
+        response.update(data if isinstance(data, dict) else {"data": data})
+    else:
+        response["error"] = result.get("error", "network command failed")
+    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+
+
+def browser_har(action: str, path: Optional[str] = None, task_id: Optional[str] = None) -> str:
+    """Start or stop HAR recording for the browser session."""
+    if _is_camofox_mode():
+        return _network_camofox_not_supported("browser_har")
+    action = (action or "").strip().lower()
+    if action not in {"start", "stop"}:
+        return json.dumps({"success": False, "error": "action must be 'start' or 'stop'"})
+    key = _last_session_key(task_id or "default")
+    cmd, args = _network_build_cmd("har", action, path if action == "stop" else None)
+    result = _run_browser_command(key, cmd, args)
+    response = {"success": bool(result.get("success")), "action": action}
+    if path:
+        response["path"] = path
+    if result.get("success"):
+        data = result.get("data", {})
+        response.update(data if isinstance(data, dict) else {"data": data})
+    else:
+        response["error"] = result.get("error", "HAR command failed")
+    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+
+
+def browser_route(action: str, url_pattern: Optional[str] = None, abort: bool = False, body: Optional[str] = None, resource_type: Optional[str] = None, task_id: Optional[str] = None) -> str:
+    """Add or remove browser request interception rules."""
+    if _is_camofox_mode():
+        return _network_camofox_not_supported("browser_route")
+    action = (action or "").strip().lower()
+    if action not in {"route", "unroute"}:
+        return json.dumps({"success": False, "error": "action must be 'route' or 'unroute'"})
+    if action == "route" and not url_pattern:
+        return json.dumps({"success": False, "error": "url_pattern is required for route action"})
+    key = _last_session_key(task_id or "default")
+    cmd, args = _network_build_cmd(action, url_pattern, abort=abort, body=body, resource_type=resource_type)
+    result = _run_browser_command(key, cmd, args)
+    response = {"success": bool(result.get("success")), "action": action, "url_pattern": url_pattern or "", "abort": bool(abort)}
+    if result.get("success"):
+        data = result.get("data", {})
+        response.update(data if isinstance(data, dict) else {"data": data})
+    else:
+        response["error"] = result.get("error", "route command failed")
+    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+
+
 def browser_console(clear: bool = False, expression: Optional[str] = None, task_id: Optional[str] = None) -> str:
     """Get browser console messages and JavaScript errors, or evaluate JS in the page.
 
@@ -6617,6 +6749,30 @@ registry.register(
     ),
     check_fn=check_browser_vision_requirements,
     emoji="👁️",
+)
+registry.register(
+    name="browser_network",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_network"],
+    handler=lambda args, **kw: browser_network(action=args.get("action", "requests"), filter=args.get("filter"), request_id=args.get("request_id"), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="🌐",
+)
+registry.register(
+    name="browser_har",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_har"],
+    handler=lambda args, **kw: browser_har(action=args.get("action", ""), path=args.get("path"), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="📊",
+)
+registry.register(
+    name="browser_route",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_route"],
+    handler=lambda args, **kw: browser_route(action=args.get("action", ""), url_pattern=args.get("url_pattern"), abort=args.get("abort", False), body=args.get("body"), resource_type=args.get("resource_type"), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="🚦",
 )
 registry.register(
     name="browser_console",

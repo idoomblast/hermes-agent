@@ -3212,6 +3212,13 @@ def cmd_chat(args):
     _guard_noninteractive_user_config(args)
     use_tui = _resolve_use_tui(args)
 
+    # Local patch (idoomblast fork): an explicit -q/--query means one-shot.
+    # A stale/exported HERMES_TUI=1 (or display.interface: tui config) must
+    # NOT hijack it into an interactive TUI session with the query injected
+    # as a startup prompt. Only an explicit --tui flag keeps the TUI.
+    if use_tui and getattr(args, "query", None) and not getattr(args, "tui", False):
+        use_tui = False
+
     # --in DIR: run in DIR. Must happen before any session resolution so the
     # workspace-scoped "latest"/-c lookups key off DIR, and it pins the
     # session there — an explicit --in wins over a resumed session's

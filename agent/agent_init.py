@@ -471,6 +471,67 @@ def _custom_provider_extra_body_for_agent(
     return fallback
 
 
+def _custom_provider_supports_reasoning_for_agent(
+    *,
+    provider: str,
+    model: str,
+    base_url: str,
+    custom_providers: List[Dict[str, Any]],
+) -> Optional[bool]:
+    """Return the declared ``supports_reasoning`` flag for a custom provider.
+
+    Mirrors ``_custom_provider_extra_body_for_agent`` matching semantics:
+    per-model ``models.<model>.supports_reasoning`` wins (even an explicit
+    ``False``), otherwise the entry-level ``supports_reasoning`` applies when
+    the entry matches the active model. Returns ``None`` when no declaration
+    exists — the caller (``_supports_reasoning_extra_body``) then falls
+    through to the default reasoning gate instead of guessing.
+    """
+    provider_norm = (provider or "").strip().lower()
+    if provider_norm == "custom":
+        provider_key_filter = ""
+    elif provider_norm.startswith("custom:"):
+        provider_key_filter = provider_norm.split(":", 1)[1].strip()
+    else:
+        return None
+
+    target_url = _normalized_custom_base_url(base_url)
+    if not target_url:
+        return None
+
+    fallback: Optional[bool] = None
+    for entry in custom_providers or []:
+        if not isinstance(entry, dict):
+            continue
+        if provider_key_filter:
+            entry_keys = {
+                str(entry.get("provider_key", "") or "").strip().lower(),
+                str(entry.get("name", "") or "").strip().lower(),
+            }
+            if provider_key_filter not in entry_keys:
+                continue
+        if _normalized_custom_base_url(entry.get("base_url")) != target_url:
+            continue
+
+        # Per-model declaration wins when present (even explicit False).
+        models = entry.get("models")
+        if isinstance(models, dict) and model:
+            model_cfg = models.get(model)
+            if isinstance(model_cfg, dict) and "supports_reasoning" in model_cfg:
+                return bool(model_cfg["supports_reasoning"])
+
+        # Entry-level declaration: only applies when the entry matches the
+        # active model (single-model entry or matching catalog entry).
+        if "supports_reasoning" not in entry:
+            continue
+        if _custom_provider_model_matches(model, entry):
+            return bool(entry["supports_reasoning"])
+        if fallback is None:
+            fallback = bool(entry["supports_reasoning"])
+
+    return fallback
+
+
 def _merge_custom_provider_extra_body(agent, custom_providers: List[Dict[str, Any]]) -> None:
     extra_body = _custom_provider_extra_body_for_agent(
         provider=agent.provider,

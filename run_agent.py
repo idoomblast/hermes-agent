@@ -8240,6 +8240,23 @@ class AIAgent:
         # has it; gemma3 / qwen3-coder don't. Cached per (model, base_url).
         if base_url_host_matches(self._base_url_lower, "ollama.com"):
             return self._ollama_supports_thinking_cached()
+        # Custom providers: opt-in declaration mirrors ``supports_vision``.
+        # A self-hosted proxy (OmniRoute, LiteLLM, vLLM, ...) behind a
+        # non-allowlisted base_url can declare ``supports_reasoning: true``
+        # per model to route ``reasoning_config`` (e.g. ``/reasoning``)
+        # through — without it, the fallthrough below hard-blocks any
+        # reasoning extra_body for non-OpenRouter hosts.
+        if (self.provider or "").strip().lower().startswith("custom"):
+            from agent.agent_init import _custom_provider_supports_reasoning_for_agent
+
+            declared = _custom_provider_supports_reasoning_for_agent(
+                provider=self.provider,
+                model=self.model,
+                base_url=self.base_url,
+                custom_providers=getattr(self, "_custom_providers", None) or [],
+            )
+            if declared is not None:
+                return declared
         if not self._is_openrouter_url():
             return False
         if base_url_host_matches(self._base_url_lower, "api.mistral.ai"):

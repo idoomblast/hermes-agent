@@ -8257,7 +8257,7 @@ class AIAgent:
             )
             if declared is not None:
                 return declared
-        if not self._is_openrouter_url():
+        if not base_url_host_matches(self._base_url_lower, "openrouter.ai"):
             return False
         if base_url_host_matches(self._base_url_lower, "api.mistral.ai"):
             return False

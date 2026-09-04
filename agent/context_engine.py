@@ -463,14 +463,21 @@ class ContextEngine(ABC):
         api_key: str = "",
         provider: str = "",
         api_mode: str = "",
+        custom_providers: list | None = None,
     ) -> None:
         """Called when the user switches models or on fallback activation.
 
         Default updates context_length and recalculates threshold_tokens
         from threshold_percent. Override if your engine needs more
         (e.g. recalculate DAG budgets, switch summary models).
+        ``custom_providers`` is additive (engines that don't declare it never
+        see it via the agent_init TypeError fallback); it carries the
+        per-model context_length overrides so deferred re-resolution keeps
+        honoring step 0c.
         """
         self.context_length = context_length
+        if custom_providers is not None:
+            self.custom_providers = custom_providers
         # Apply per-model threshold overrides if set (longest substring match).
         # Falls back to _config_threshold_percent (the raw config value) when
         # no override matches. Plugin engines that override update_model() can

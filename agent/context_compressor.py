@@ -2535,6 +2535,7 @@ class ContextCompressor(ContextEngine):
                 api_key=self.api_key,
                 config_context_length=self._config_context_length,
                 provider=self.provider,
+                custom_providers=getattr(self, "custom_providers", None),
             )
             # Small-context threshold floor: models under 512K trigger at
             # >=75% so compaction doesn't fire with half the window still
@@ -3224,6 +3225,7 @@ class ContextCompressor(ContextEngine):
         provider: str = "",
         api_mode: str = "",
         max_tokens: int | None = None,
+        custom_providers: list | None = None,
     ) -> None:
         """Update model info after a model switch or fallback activation."""
         runtime_changed = any((
@@ -3237,6 +3239,11 @@ class ContextCompressor(ContextEngine):
         self.api_key = api_key
         self.provider = provider
         self.api_mode = api_mode
+        # Keep the per-model override list in sync with the new runtime so a
+        # later deferred re-resolution still honors step 0c (callers that
+        # don't pass a list keep the existing snapshot).
+        if custom_providers is not None:
+            self.custom_providers = custom_providers
         self.context_length = context_length
         # Re-resolve per-model threshold for the NEW model, then re-apply the
         # small-context threshold floor. Starting from _config_threshold_percent
@@ -3478,6 +3485,7 @@ class ContextCompressor(ContextEngine):
         config_context_length: int | None = None,
         provider: str = "",
         api_mode: str = "",
+        custom_providers: list | None = None,
         abort_on_summary_failure: bool = False,
         max_tokens: int | None = None,
         model_thresholds: dict[str, float] | None = None,
@@ -3497,6 +3505,15 @@ class ContextCompressor(ContextEngine):
         # tail + verbatim-user-message summary section + recovery pointers;
         # "legacy" = 0.20*window tail (shipping behavior).
         self.tail_mode = tail_mode if tail_mode in ("legacy", "lean") else "lean"
+        # Per-model context_length overrides from custom_providers entries.
+        # get_model_context_length() resolves step 0c from this list when it
+        # is threaded through; without it, a deferred re-resolution (model
+        # switch, config unset, compressor re-init) silently falls through to
+        # endpoint probing (step 1/2), which reports the UPSTREAM's window
+        # (e.g. an aggregator claiming 1M) instead of the user's config pin.
+        # The list is stored as-is (same convention as agent._custom_providers)
+        # so callers can pass the compatible list or the raw config list.
+        self.custom_providers = custom_providers
         # Per-model threshold overrides (longest substring match wins).
         # Stored as a plain dict; resolved in _resolve_threshold(), then the
         # small-context floor is applied on top.

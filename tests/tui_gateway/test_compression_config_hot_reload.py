@@ -255,6 +255,106 @@ def test_removing_context_length_reinfers_from_model_metadata(monkeypatch):
     assert compressor.threshold_tokens == int(1_000_000 * 0.50)
 
 
+# ── custom_providers per-model context pin (TUI live-sync) ─────────────────
+# A session whose context window comes from custom_providers[].models.<m>.
+# .context_length (NOT model.context_length) had that pin WIPED by the first
+# turn-sync: _apply_live_compression_config treated "no model.context_length"
+# as "pin removed" and forced re-inference, which fell through to endpoint
+# probing (aggregator upstream claims 1M) instead of the user's config pin.
+
+
+def _custom_provider_session():
+    compressor = ContextCompressor(
+        model="glm-5.3",
+        provider="custom:omniidoomai",
+        base_url="https://omni.idoom.me/v1",
+        config_context_length=512_000,
+        quiet_mode=True,
+    )
+    agent = SimpleNamespace(
+        model="glm-5.3",
+        provider="custom:omniidoomai",
+        base_url="https://omni.idoom.me/v1",
+        context_compressor=compressor,
+        compression_enabled=True,
+        compression_idle_compact_after_seconds=0,
+        codex_responses_native_compaction=False,
+        codex_responses_compact_threshold=200_000,
+    )
+    return {"agent": agent, "session_key": "session-cp-pin"}, compressor
+
+
+_CP_CFG = {
+    "model": {"default": "glm-5.3", "provider": "custom:omniidoomai"},
+    "compression": {},
+    "custom_providers": [
+        {
+            "name": "OmniIdoomAI",
+            "base_url": "https://omni.idoom.me/v1",
+            "models": {
+                "glm-5.3": {"context_length": 512_000},
+                "deepseek-v4-flash": {"context_length": 512_000},
+            },
+        }
+    ],
+}
+
+
+def test_custom_provider_pin_survives_turn_sync(monkeypatch):
+    session, compressor = _custom_provider_session()
+    assert compressor.context_length == 512_000
+
+    _sync_with_cfg(monkeypatch, session, _CP_CFG)
+
+    # The pin must survive: no model.context_length, but the active model has
+    # a custom_providers per-model pin that matches the session's route.
+    assert compressor._config_context_length == 512_000
+    assert compressor.context_length == 512_000
+    assert compressor.threshold_tokens == int(512_000 * 0.50)
+
+
+def test_custom_provider_pin_reapplied_after_edit(monkeypatch):
+    session, compressor = _custom_provider_session()
+    assert compressor.context_length == 512_000
+
+    # User edits the pin down to 262144 — next turn must adopt it.
+    cfg = {
+        "model": {"default": "glm-5.3", "provider": "custom:omniidoomai"},
+        "compression": {},
+        "custom_providers": [
+            {
+                "name": "OmniIdoomAI",
+                "base_url": "https://omni.idoom.me/v1",
+                "models": {"glm-5.3": {"context_length": 262_144}},
+            }
+        ],
+    }
+    _sync_with_cfg(monkeypatch, session, cfg)
+    assert compressor._config_context_length == 262_144
+    assert compressor.context_length == 262_144
+
+
+def test_custom_provider_pin_change_busts_signature(monkeypatch):
+    cfg_a = _CP_CFG
+    cfg_b = {
+        "model": {"default": "glm-5.3", "provider": "custom:omniidoomai"},
+        "compression": {},
+        "custom_providers": [
+            {
+                "name": "OmniIdoomAI",
+                "base_url": "https://omni.idoom.me/v1",
+                "models": {"glm-5.3": {"context_length": 262_144}},
+            }
+        ],
+    }
+    sig_a = server._tui_compression_config_signature(cfg_a)
+    sig_b = server._tui_compression_config_signature(cfg_b)
+    assert sig_a != sig_b
+
+    # Same pin twice → same signature (no spurious re-sync every turn).
+    assert server._tui_compression_config_signature(cfg_a) == sig_a
+
+
 def test_removing_idle_compact_after_seconds_restores_zero(monkeypatch):
     session, _ = _neutral_session()
     session["agent"].compression_idle_compact_after_seconds = 1800

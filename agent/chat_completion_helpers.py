@@ -3065,6 +3065,7 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
                 api_key=getattr(agent, "api_key", ""),  # callable preserved → call_llm
                 provider=agent.provider,
                 api_mode=agent.api_mode,
+                custom_providers=getattr(agent, "_custom_providers", None),
             )
 
         # Re-resolve reasoning_config for the new fallback model (Closes #21256).

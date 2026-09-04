@@ -2871,14 +2871,29 @@ def init_agent(
         # and may ignore the attribute.
         if compression_model_thresholds:
             agent.context_compressor.model_thresholds = compression_model_thresholds
-        agent.context_compressor.update_model(
-            model=agent.model,
-            context_length=_plugin_ctx_len,
-            base_url=agent.base_url,
-            api_key=getattr(agent, "api_key", ""),
-            provider=agent.provider,
-            api_mode=agent.api_mode,
-        )
+        # Plugin engines own their update_model() signature (the contract only
+        # guarantees the core kwargs), so thread the custom_providers snapshot
+        # defensively: engines that accept it keep step-0c honored on deferred
+        # re-resolution; engines that don't simply skip the extra kwarg.
+        try:
+            agent.context_compressor.update_model(
+                model=agent.model,
+                context_length=_plugin_ctx_len,
+                base_url=agent.base_url,
+                api_key=getattr(agent, "api_key", ""),
+                provider=agent.provider,
+                api_mode=agent.api_mode,
+                custom_providers=_custom_providers,
+            )
+        except TypeError:
+            agent.context_compressor.update_model(
+                model=agent.model,
+                context_length=_plugin_ctx_len,
+                base_url=agent.base_url,
+                api_key=getattr(agent, "api_key", ""),
+                provider=agent.provider,
+                api_mode=agent.api_mode,
+            )
         if not agent.quiet_mode:
             _ra().logger.info("Using context engine: %s", _selected_engine.name)
     else:
@@ -2923,6 +2938,7 @@ def init_agent(
             config_context_length=_effective_context_length,
             provider=agent.provider,
             api_mode=agent.api_mode,
+            custom_providers=_custom_providers,
             abort_on_summary_failure=compression_abort_on_summary_failure,
             max_tokens=_compressor_max_tokens,
             model_thresholds=compression_model_thresholds,

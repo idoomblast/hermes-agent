@@ -3394,6 +3394,7 @@ def switch_model(
                 api_key=agent.api_key,  # context_compressor forwards to call_llm; callable preserved
                 provider=agent.provider,
                 api_mode=agent.api_mode,
+                custom_providers=_sm_custom_providers,
             )
         except Exception:
             _restore_snapshot()

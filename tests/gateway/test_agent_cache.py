@@ -224,6 +224,54 @@ class TestExtractCacheBustingConfig:
 
         assert out["tools.registry_generation"] == 12345
 
+    def test_custom_provider_context_pins_bust_cache(self):
+        """Per-model custom_providers context_length edits must rebuild agents.
+
+        The pins are baked into the compressor at construction (same standing
+        as model.context_length), so a changed pin with an unchanged signature
+        would keep serving the old window forever.
+        """
+        from gateway.run import GatewayRunner
+
+        base_cfg = {
+            "custom_providers": [
+                {
+                    "name": "P",
+                    "base_url": "https://p.example/v1",
+                    "models": {
+                        "model-a": {"context_length": 200_000},
+                    },
+                }
+            ]
+        }
+        out_a = GatewayRunner._extract_cache_busting_config(base_cfg)
+        assert out_a["custom_providers.context_lengths"] == (
+            ("https://p.example/v1", "model-a", "200000"),
+        )
+
+        edited = {
+            "custom_providers": [
+                {
+                    "name": "P",
+                    "base_url": "https://p.example/v1",
+                    "models": {
+                        "model-a": {"context_length": 400_000},
+                    },
+                }
+            ]
+        }
+        out_b = GatewayRunner._extract_cache_busting_config(edited)
+        assert out_b["custom_providers.context_lengths"] != out_a[
+            "custom_providers.context_lengths"
+        ]
+
+        # No pins / no section → key absent, and identical cfg → identical value.
+        out_c = GatewayRunner._extract_cache_busting_config({})
+        assert "custom_providers.context_lengths" not in out_c
+        assert GatewayRunner._extract_cache_busting_config(base_cfg)[
+            "custom_providers.context_lengths"
+        ] == out_a["custom_providers.context_lengths"]
+
 
 class TestAgentCacheLifecycle:
     """End-to-end cache behavior with real AIAgent construction."""

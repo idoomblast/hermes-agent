@@ -29391,6 +29391,32 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception:
             out["tools.registry_generation"] = None
 
+        # Per-model custom_providers context_length pins are baked into the
+        # cached agent's compressor at construction (same standing as
+        # model.context_length), so editing one must rebuild the cached agent.
+        # The section is a LIST (not a dict of sections), so it can't ride the
+        # _CACHE_BUSTING_CONFIG_KEYS tuple loop; collapse it to a stable
+        # (base_url, model, context_length) tuple signature instead.
+        cp_raw = cfg.get("custom_providers")
+        if isinstance(cp_raw, list) and cp_raw:
+            cp_triples = []
+            for cp_entry in cp_raw:
+                if not isinstance(cp_entry, dict):
+                    continue
+                cp_models = cp_entry.get("models")
+                if not isinstance(cp_models, dict):
+                    continue
+                for cp_model, cp_model_cfg in cp_models.items():
+                    if isinstance(cp_model_cfg, dict) and "context_length" in cp_model_cfg:
+                        cp_triples.append(
+                            (
+                                str(cp_entry.get("base_url") or ""),
+                                str(cp_model),
+                                str(cp_model_cfg.get("context_length")),
+                            )
+                        )
+            out["custom_providers.context_lengths"] = tuple(sorted(cp_triples))
+
         # Honcho identity-mapping keys live in honcho.json, not user_config.
         # Only read that file when Honcho is the active memory provider.
         provider = cfg_get(cfg, "memory", "provider")

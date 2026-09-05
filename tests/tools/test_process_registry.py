@@ -39,8 +39,11 @@ def _reset_systemd_scope_cache():
 
     original = _pr._SYSTEMD_SCOPE_AVAILABLE
     _pr._SYSTEMD_SCOPE_AVAILABLE = False
+    original_oom = _pr._OOM_POLICY_SUPPORT
+    _pr._OOM_POLICY_SUPPORT = None
     yield
     _pr._SYSTEMD_SCOPE_AVAILABLE = original
+    _pr._OOM_POLICY_SUPPORT = original_oom
 
 
 def _make_session(
@@ -1957,7 +1960,16 @@ class TestSystemdCgroupIsolation:
             if value == "--property"
         ]
         assert "MemoryAccounting=yes" in properties
-        assert "OOMPolicy=kill" in properties
+        # OOMPolicy= for scopes requires systemd >= 253; the argv includes it
+        # exactly when the availability probe did not detect the manager
+        # rejecting the assignment (older managers reject it, which would
+        # fail the whole scope creation).
+        import tools.process_registry as _pr_scope
+
+        if _pr_scope._OOM_POLICY_SUPPORT is False:
+            assert "OOMPolicy=kill" not in properties
+        else:
+            assert "OOMPolicy=kill" in properties
         memory_max = next(
             value for value in properties if value.startswith("MemoryMax=")
         )

@@ -116,6 +116,46 @@ _SYSTEMD_SCOPE_PROBED_AT = 0.0
 _SYSTEMD_SCOPE_FAILURE_TTL_SECONDS = 60.0
 _MIN_WORKER_MEMORY_MAX_BYTES = 64 * 1024 * 1024
 _DEFAULT_WORKER_MEMORY_MAX_BYTES = 1024 * 1024 * 1024
+# OOMPolicy= on scope units landed in systemd v253 (systemd.scope(5) "Added
+# in version 253"); older managers (e.g. Ubuntu 22.04's systemd 249) reject the
+# assignment with "Unknown assignment: OOMPolicy=kill".  Because systemd-run
+# applies all --property assignments atomically, one unsupported property
+# kills the entire scope creation — including the no-op availability probe,
+# which would fail-closed ALL scoped worker dispatch on those hosts (#70716
+# regressed as "cron dispatch failed" on systemd 249).  The availability
+# probe below detects this by retrying once without OOMPolicy= when the
+# failure names it, and caches the outcome here.  _build_systemd_scope_argv
+# reads this cache and NEVER probes on its own.
+_OOM_POLICY_ASSIGNMENT = "OOMPolicy=kill"
+_OOM_POLICY_SUPPORT: Optional[bool] = None
+
+
+def _scope_probe_properties(include_oom_policy: bool) -> List[str]:
+    """Return the cgroup property assignments for a transient worker scope."""
+    properties = [
+        "MemoryAccounting=yes",
+        f"MemoryMax={_worker_memory_max_bytes()}",
+    ]
+    if include_oom_policy:
+        properties.append(_OOM_POLICY_ASSIGNMENT)
+    return properties
+
+
+def _run_user_scope_probe(binary: str, unit: str, include_oom_policy: bool):
+    """Run a no-op ``systemd-run --user --scope`` with the given properties."""
+    probe_argv = [
+        binary, "--user", "--scope", "--quiet",
+        "--unit", unit,
+        "--collect",
+    ]
+    for assignment in _scope_probe_properties(include_oom_policy):
+        probe_argv += ["--property", assignment]
+    probe_argv += ["--", "/bin/true"]
+    return subprocess.run(
+        probe_argv,
+        capture_output=True,
+        timeout=3,
+    )
 _WORKER_MEMORY_MAX_CAP_BYTES = 4 * 1024 * 1024 * 1024
 
 
@@ -192,7 +232,7 @@ def _systemd_run_user_scope_available() -> bool:
     (``systemd-run --user --scope --unit=… -- /bin/true``) and remember the
     outcome.
     """
-    global _SYSTEMD_SCOPE_AVAILABLE, _SYSTEMD_SCOPE_PROBED_AT
+    global _SYSTEMD_SCOPE_AVAILABLE, _SYSTEMD_SCOPE_PROBED_AT, _OOM_POLICY_SUPPORT
     cached = _SYSTEMD_SCOPE_AVAILABLE
     now = time.monotonic()
     if cached is True:
@@ -228,21 +268,33 @@ def _systemd_run_user_scope_available() -> bool:
                     # Probe: create a transient scope that immediately exits.
                     # A unique unit avoids collisions; timeout bounds D-Bus.
                     probe_unit = f"hermes-probe-scope-{os.getpid()}-{uuid.uuid4().hex[:8]}"
-                    result = subprocess.run(
-                        [
-                            binary, "--user", "--scope", "--quiet",
-                            "--unit", probe_unit,
-                            "--collect",
-                            "--property", "MemoryAccounting=yes",
-                            "--property", f"MemoryMax={_worker_memory_max_bytes()}",
-                            "--property", "OOMPolicy=kill",
-                            "--",
-                            "/bin/true",
-                        ],
-                        capture_output=True,
-                        timeout=3,
+                    result = _run_user_scope_probe(
+                        binary, probe_unit, include_oom_policy=True
                     )
                     available = result.returncode == 0
+                    if available:
+                        _OOM_POLICY_SUPPORT = True
+                    elif "oompolicy" in (
+                        (result.stderr or b"")
+                        .decode("utf-8", "replace")
+                        .lower()
+                    ):
+                        # The manager rejected OOMPolicy= (added in systemd
+                        # 253; "Unknown assignment: OOMPolicy=kill" on older
+                        # managers).  Retry once without it — cgroup isolation
+                        # still works, only the per-unit OOM kill policy is
+                        # absent — and cache the reduced property set for all
+                        # later scopes.
+                        logger.debug(
+                            "systemd manager rejects OOMPolicy= on scopes "
+                            "(systemd < 253); scoped workers use "
+                            "MemoryMax-only isolation"
+                        )
+                        retry = _run_user_scope_probe(
+                            binary, f"{probe_unit}-no-oom", include_oom_policy=False
+                        )
+                        available = retry.returncode == 0
+                        _OOM_POLICY_SUPPORT = False if available else None
                     if not available:
                         logger.debug(
                             "systemd-run --user --scope probe failed (rc=%s): %s",
@@ -303,8 +355,10 @@ def _build_systemd_scope_argv(
         # guard anyway so we never pass None into Popen.
         return shell_argv
     unit_name = f"hermes-worker-{unit_suffix}"
-    memory_max = _worker_memory_max_bytes()
-    return [
+    scope_properties = _scope_probe_properties(
+        include_oom_policy=_OOM_POLICY_SUPPORT is not False
+    )
+    scope_argv = [
         binary,
         "--user",
         "--scope",
@@ -312,15 +366,11 @@ def _build_systemd_scope_argv(
         "--unit",
         unit_name,
         "--collect",
-        "--property",
-        "MemoryAccounting=yes",
-        "--property",
-        f"MemoryMax={memory_max}",
-        "--property",
-        "OOMPolicy=kill",
-        "--",
-        *shell_argv,
     ]
+    for assignment in scope_properties:
+        scope_argv += ["--property", assignment]
+    scope_argv += ["--", *shell_argv]
+    return scope_argv
 
 
 def restart_safe_gateway_child_argv(

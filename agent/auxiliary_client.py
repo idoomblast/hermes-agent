@@ -5994,15 +5994,21 @@ def _get_cached_client(
     with _client_cache_lock:
         if cache_key in _client_cache:
             cached_client, cached_default, cached_loop = _client_cache[cache_key]
-            loop_ok = not async_mode or (
-                cached_loop is not None and cached_loop is current_loop and not cached_loop.is_closed()
-            )
-            if loop_ok:
-                return cached_client, _compat_model(cached_client, model, cached_default)
-            # Stale async entry — evict. Only a closed owner loop may be awaited here; a live
-            # foreign loop stays force-neutered.
-            _close_cached_client(cached_client, close_async=cached_loop is not None and cached_loop.is_closed())
-            del _client_cache[cache_key]
+            if isinstance(cached_client, _AuxProbeClientStub):
+                # Never serve a probe stub to a runtime caller — if one
+                # landed in the cache (probe-path leak), evict it and fall
+                # through to build a real client below.
+                del _client_cache[cache_key]
+            else:
+                loop_ok = not async_mode or (
+                    cached_loop is not None and cached_loop is current_loop and not cached_loop.is_closed()
+                )
+                if loop_ok:
+                    return cached_client, _compat_model(cached_client, model, cached_default)
+                # Stale async entry — evict. Only a closed owner loop may be awaited here; a live
+                # foreign loop stays force-neutered.
+                _close_cached_client(cached_client, close_async=cached_loop is not None and cached_loop.is_closed())
+                del _client_cache[cache_key]
     # Build outside the lock. For pool-backed providers derive the key from the pool entry:
     # resolve_api_key_provider_credentials prefers env vars, which would bypass pool rotation
     # and retry an exhausted key.
@@ -6023,6 +6029,15 @@ def _get_cached_client(
         # False and vision tools vanish for the process lifetime (#87654).
         return client, model or default_model
     if client is not None:
+        if isinstance(client, _AuxProbeClientStub):
+            # Probe stubs must never enter the cache — a runtime caller
+            # would receive a non-functional client on the next cache hit
+            # (mirrors _store_cached_client). Callers inside probe mode can
+            # still observe resolvability via `is not None`.
+            return client, default_model
+        # For async clients, remember which loop they were created on so we
+        # can detect stale entries later.
+        bound_loop = current_loop
         with _client_cache_lock:
             if cache_key not in _client_cache:
                 # FIFO safety-belt eviction. Do NOT close evicted clients: another caller may be

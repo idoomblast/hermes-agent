@@ -2239,6 +2239,7 @@ def _update_switch_compressor(agent, custom_providers, effective_context_length,
             api_key=agent.api_key,  # context_compressor forwards to call_llm; callable preserved
             provider=agent.provider,
             api_mode=agent.api_mode,
+            custom_providers=custom_providers,
         )
     except Exception:
         _restore_switch_snapshot(agent, snapshot)

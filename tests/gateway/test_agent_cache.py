@@ -207,7 +207,10 @@ class TestExtractCacheBustingConfig:
         as model.context_length), so a changed pin with an unchanged signature
         would keep serving the old window forever.
         """
-        from gateway.run import GatewayRunner
+        from gateway.run_agent_cache import GatewayAgentCacheMixin
+
+        class _Runner(GatewayAgentCacheMixin):
+            _CACHE_BUSTING_CONFIG_KEYS = (("model", "context_length"),)
 
         base_cfg = {
             "custom_providers": [
@@ -220,7 +223,7 @@ class TestExtractCacheBustingConfig:
                 }
             ]
         }
-        out_a = GatewayRunner._extract_cache_busting_config(base_cfg)
+        out_a = _Runner._extract_cache_busting_config(base_cfg)
         assert out_a["custom_providers.context_lengths"] == (
             ("https://p.example/v1", "model-a", "200000"),
         )
@@ -236,15 +239,15 @@ class TestExtractCacheBustingConfig:
                 }
             ]
         }
-        out_b = GatewayRunner._extract_cache_busting_config(edited)
+        out_b = _Runner._extract_cache_busting_config(edited)
         assert out_b["custom_providers.context_lengths"] != out_a[
             "custom_providers.context_lengths"
         ]
 
         # No pins / no section → key absent, and identical cfg → identical value.
-        out_c = GatewayRunner._extract_cache_busting_config({})
+        out_c = _Runner._extract_cache_busting_config({})
         assert "custom_providers.context_lengths" not in out_c
-        assert GatewayRunner._extract_cache_busting_config(base_cfg)[
+        assert _Runner._extract_cache_busting_config(base_cfg)[
             "custom_providers.context_lengths"
         ] == out_a["custom_providers.context_lengths"]
 

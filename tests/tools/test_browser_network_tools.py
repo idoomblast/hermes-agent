@@ -6,7 +6,7 @@ from tools import browser_tool
 
 def _run(result=None):
     return patch.object(
-        browser_tool,
+        browser_tool._session,
         "_run_browser_command",
         return_value=result or {"success": True, "data": {"ok": True}},
     )

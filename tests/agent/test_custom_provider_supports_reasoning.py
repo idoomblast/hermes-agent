@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 from agent.agent_init import _custom_provider_supports_reasoning_for_agent
 from run_agent import AIAgent
+from utils import base_url_host_matches
 
 
 # ── helper: _custom_provider_supports_reasoning_for_agent ─────────────
@@ -194,6 +195,9 @@ def _stub_agent(**overrides):
     }
     attrs.update(overrides)
     stub = SimpleNamespace(**attrs)
+    stub._is_openrouter_url = lambda: base_url_host_matches(
+        getattr(stub, "_base_url_lower", ""), "openrouter.ai"
+    )
     stub._supports_reasoning_extra_body = (
         AIAgent._supports_reasoning_extra_body.__get__(stub)
     )

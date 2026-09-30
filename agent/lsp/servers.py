@@ -135,11 +135,31 @@ def _markers_root(markers: Optional[Sequence[str]], excludes: Sequence[str] = ()
 def _find_binary(ctx: ServerContext, server_id: str, which: Sequence[str], install_pkg: Optional[str]) -> Optional[str]:
     """Config override → PATH → (optional) auto-install; ``None`` when nothing resolves."""
     override = ctx.binary_overrides.get(server_id)
-    bin_path = override[0] if override and override[0] and os.path.exists(override[0]) else _which(*which)
+    if override and override[0]:
+        candidate = override[0]
+        bin_path = candidate if os.path.exists(candidate) else _which(candidate)
+    else:
+        bin_path = _which(*which)
     if bin_path is None and install_pkg is not None:
         from agent.lsp.install import try_install
         bin_path = try_install(install_pkg, ctx.install_strategy)
     return bin_path
+
+
+def _resolve_override(ctx: ServerContext, server_id: str) -> Optional[str]:
+    """Resolve a user-configured binary override, or None.
+
+    Accepts both filesystem paths and PATH-resolvable commands so that
+    config snippets like ``binary_overrides: {pyright: [ty, server]}`` work
+    even when ``ty`` is only on PATH.
+    """
+    override = ctx.binary_overrides.get(server_id)
+    if not override or not override[0]:
+        return None
+    candidate = override[0]
+    if os.path.exists(candidate):
+        return candidate
+    return _which(candidate)
 
 
 def _make_spec(root: str, ctx: ServerContext, server_id: str, command: List[str],

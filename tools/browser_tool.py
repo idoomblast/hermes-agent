@@ -1049,7 +1049,7 @@ def browser_network(action: str = "requests", filter: Optional[str] = None, requ
         cmd, args = _network_build_cmd("request", request_id)
     else:
         cmd, args = _network_build_cmd("requests", filter=filter)
-    result = _run_browser_command(key, cmd, args)
+    result = _session._run_browser_command(key, cmd, args)
     response = {"success": bool(result.get("success")), "action": action}
     if filter:
         response["filter"] = filter
@@ -1060,7 +1060,7 @@ def browser_network(action: str = "requests", filter: Optional[str] = None, requ
         response.update(data if isinstance(data, dict) else {"data": data})
     else:
         response["error"] = result.get("error", "network command failed")
-    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+    return _json_with_fallback(response, result)
 
 
 def browser_har(action: str, path: Optional[str] = None, task_id: Optional[str] = None) -> str:
@@ -1072,7 +1072,7 @@ def browser_har(action: str, path: Optional[str] = None, task_id: Optional[str] 
         return json.dumps({"success": False, "error": "action must be 'start' or 'stop'"})
     key = _last_session_key(task_id or "default")
     cmd, args = _network_build_cmd("har", action, path if action == "stop" else None)
-    result = _run_browser_command(key, cmd, args)
+    result = _session._run_browser_command(key, cmd, args)
     response = {"success": bool(result.get("success")), "action": action}
     if path:
         response["path"] = path
@@ -1081,7 +1081,7 @@ def browser_har(action: str, path: Optional[str] = None, task_id: Optional[str] 
         response.update(data if isinstance(data, dict) else {"data": data})
     else:
         response["error"] = result.get("error", "HAR command failed")
-    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+    return _json_with_fallback(response, result)
 
 
 def browser_route(action: str, url_pattern: Optional[str] = None, abort: bool = False, body: Optional[str] = None, resource_type: Optional[str] = None, task_id: Optional[str] = None) -> str:
@@ -1095,14 +1095,14 @@ def browser_route(action: str, url_pattern: Optional[str] = None, abort: bool = 
         return json.dumps({"success": False, "error": "url_pattern is required for route action"})
     key = _last_session_key(task_id or "default")
     cmd, args = _network_build_cmd(action, url_pattern, abort=abort, body=body, resource_type=resource_type)
-    result = _run_browser_command(key, cmd, args)
+    result = _session._run_browser_command(key, cmd, args)
     response = {"success": bool(result.get("success")), "action": action, "url_pattern": url_pattern or "", "abort": bool(abort)}
     if result.get("success"):
         data = result.get("data", {})
         response.update(data if isinstance(data, dict) else {"data": data})
     else:
         response["error"] = result.get("error", "route command failed")
-    return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False, default=str)
+    return _json_with_fallback(response, result)
 
 
 def browser_console(clear: bool = False, expression: Optional[str] = None, task_id: Optional[str] = None) -> str:
@@ -1506,7 +1506,7 @@ registry.register(
         request_id=args.get("request_id"),
         task_id=kw.get("task_id"),
     ),
-    check_fn=check_browser_requirements,
+    check_fn=_install.check_browser_requirements,
     emoji="🌐",
 )
 registry.register(
@@ -1518,7 +1518,7 @@ registry.register(
         path=args.get("path"),
         task_id=kw.get("task_id"),
     ),
-    check_fn=check_browser_requirements,
+    check_fn=_install.check_browser_requirements,
     emoji="📊",
 )
 registry.register(
@@ -1533,6 +1533,6 @@ registry.register(
         resource_type=args.get("resource_type"),
         task_id=kw.get("task_id"),
     ),
-    check_fn=check_browser_requirements,
+    check_fn=_install.check_browser_requirements,
     emoji="🚦",
 )

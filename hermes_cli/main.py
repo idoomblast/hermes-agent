@@ -1833,6 +1833,13 @@ def cmd_chat(args):
     # Structured stdout is a non-interactive protocol: it overrides HERMES_TUI/display.interface too.
     use_tui = False if stream_json_requested(args) else _resolve_use_tui(args)
 
+    # Local patch (idoomblast fork): an explicit -q/--query means one-shot.
+    # A stale/exported HERMES_TUI=1 (or display.interface: tui config) must
+    # NOT hijack it into an interactive TUI session with the query injected
+    # as a startup prompt. Only an explicit --tui flag keeps the TUI.
+    if use_tui and getattr(args, "query", None) and not getattr(args, "tui", False):
+        use_tui = False
+
     _resolve_chat_session_args(args, use_tui)
 
     _warn_retired_xai_models()

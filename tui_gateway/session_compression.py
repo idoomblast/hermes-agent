@@ -19,6 +19,30 @@ def _tui_compression_config_signature(cfg: dict | None) -> tuple:
     picked = {k: v for k, v in keys.items() if k.startswith("compression.") or k == "model.context_length"}
     compression = cfg.get("compression") if isinstance(cfg, dict) and isinstance(cfg.get("compression"), dict) else {}
     picked.update({f"compression.{k}": compression.get(k) for k in ("idle_compact_after_seconds", "tail_mode")})
+    # Per-model custom_providers context_length pins are first-class overrides
+    # (same standing as model.context_length for the models they cover), so
+    # editing one must re-apply on the next turn like any other context key —
+    # without this the live session kept the pin captured at agent creation.
+    cp_raw = cfg.get("custom_providers") if isinstance(cfg, dict) else None
+    if isinstance(cp_raw, list) and cp_raw:
+        cp_triples = []
+        for cp_entry in cp_raw:
+            if not isinstance(cp_entry, dict):
+                continue
+            cp_models = cp_entry.get("models")
+            if not isinstance(cp_models, dict):
+                continue
+            for cp_model, cp_model_cfg in cp_models.items():
+                if isinstance(cp_model_cfg, dict) and "context_length" in cp_model_cfg:
+                    cp_triples.append(
+                        (
+                            str(cp_entry.get("base_url") or ""),
+                            str(cp_model),
+                            str(cp_model_cfg.get("context_length")),
+                        )
+                    )
+        if cp_triples:
+            picked["custom_providers.context_lengths"] = tuple(sorted(cp_triples))
     return tuple(sorted(picked.items()))
 
 
@@ -160,11 +184,40 @@ def _apply_live_compression_config(agent: Any, cfg: dict | None) -> None:
         set_config_context_length(agent, new_ctx)
         with contextlib.suppress(Exception):
             cc.context_length = new_ctx
-    elif getattr(cc, "_config_context_length", None) is not None:
-        # model.context_length removed: drop the override and force re-inference from model metadata on
-        # next access (construction's deferred resolution); re-applies the small-context floor too.
-        set_config_context_length(agent, None)
-        cc._resolved_context_length = None
+    else:
+        # No global model.context_length pin. Before forcing re-inference,
+        # honor a custom_providers per-model pin for the ACTIVE model — the
+        # same lookup agent construction and /model switch use. Without this,
+        # a session whose context window came from custom_providers (not from
+        # model.context_length) had its legitimate pin wiped on the first
+        # turn-sync after startup, and re-inference fell through to endpoint
+        # probing (the upstream aggregator's claimed window) instead of the
+        # user's config. Only when no per-model pin applies do we drop the
+        # override and defer to metadata re-inference.
+        _cp_pin: int | None = None
+        try:
+            from hermes_cli.config import (
+                get_compatible_custom_providers,
+                get_custom_provider_context_length,
+            )
+
+            _cp_list = get_compatible_custom_providers(cfg) if isinstance(cfg, dict) else None
+            _cp_pin = get_custom_provider_context_length(
+                model=getattr(agent, "model", "") or "",
+                base_url=getattr(agent, "base_url", "") or "",
+                custom_providers=_cp_list,
+            )
+        except Exception:
+            _cp_pin = None
+        if _cp_pin is not None and _cp_pin > 0:
+            set_config_context_length(agent, _cp_pin)
+            with contextlib.suppress(Exception):
+                cc.context_length = _cp_pin
+        elif getattr(cc, "_config_context_length", None) is not None:
+            # model.context_length removed: drop the override and force re-inference from model metadata on
+            # next access (construction's deferred resolution); re-applies the small-context floor too.
+            set_config_context_length(agent, None)
+            cc._resolved_context_length = None
     cc.threshold_tokens_cap = cc._coerce_threshold_tokens_cap(
         compression.get("threshold_tokens", _default_threshold_tokens_cap())
     )

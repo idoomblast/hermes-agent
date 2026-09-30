@@ -2562,10 +2562,16 @@ class ContextCompressor(SummaryDispatchMixin, MicroCompactionMixin, ContextEngin
     def update_model(
         self, model: str, context_length: int, base_url: str = "", api_key: Any = "", provider: str = "",
         api_mode: str = "", max_tokens: int | None = None,
+        custom_providers: list | None = None,
     ) -> None:
         """Update model info after a model switch or fallback activation."""
         runtime_changed = (model, provider, base_url, api_mode) != (self.model, self.provider, self.base_url, self.api_mode)
         self.model, self.base_url, self.api_key, self.provider, self.api_mode = model, base_url, api_key, provider, api_mode
+        # Keep the per-model override list in sync with the new runtime so a
+        # later deferred re-resolution still honors step 0c (callers that
+        # don't pass a list keep the existing snapshot).
+        if custom_providers is not None:
+            self.custom_providers = custom_providers
         self.context_length = context_length
         # max_tokens=None means "unspecified": keep the existing output reservation.
         # A switch that genuinely changes the output budget passes the new value explicitly. (#43547)

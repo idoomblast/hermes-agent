@@ -233,14 +233,21 @@ class ContextEngine(ABC):
     def update_model(
         self, model: str, context_length: int, base_url: str = "", api_key: str = "",
         provider: str = "", api_mode: str = "",
+        custom_providers: list | None = None,
     ) -> None:
         """Model switch / fallback: recompute threshold_tokens (override for more).
 
         Per-model threshold override (longest substring match), else the raw config
         percent — snapshotted ONCE so repeated switches fall back to the configured
         value, not the previous model's override.
+        ``custom_providers`` is additive (engines that don't declare it never
+        see it via the agent_init TypeError fallback); it carries the
+        per-model context_length overrides so deferred re-resolution keeps
+        honoring step 0c.
         """
         self.context_length = context_length
+        if custom_providers is not None:
+            self.custom_providers = custom_providers
         from agent.context_compressor import resolve_model_threshold
         if not hasattr(self, "_config_threshold_percent"):
             self._config_threshold_percent = self.threshold_percent

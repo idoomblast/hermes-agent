@@ -9,6 +9,7 @@ import contextlib
 import copy
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -3514,6 +3515,71 @@ def _requeue_pending_steer(agent, steer_text: str) -> None:
         agent._pending_steer = (existing + "\n" + steer_text) if existing else steer_text
 
 
+_EXTERNAL_STEER_ENV = "HERMES_FLEET_STEER_FILE"
+_EXTERNAL_STEER_MAX_MESSAGES = 5
+_EXTERNAL_STEER_MAX_CHARS = 4000
+
+
+def _drain_external_steer() -> str:
+    """Drain steering queued by an out-of-process supervisor (fail-open).
+
+    Hermes normally steers a running agent in-process via ``AIAgent.steer``.
+    A supervisor that runs the agent as a SEPARATE CLI process (the specialist
+    fleet dispatcher) cannot reach that object, so it queues JSONL rows
+    (``{"text": ...}``) in the file named by ``HERMES_FLEET_STEER_FILE`` and
+    exports the path to the child. This consumes the queue so the caller can
+    inject the text through the same trusted channel as an in-process steer —
+    the standalone ``role:"user"`` marker row, never a tool result (models
+    correctly refuse instructions smuggled through tool output).
+
+    Returns the joined text, or "" when unset/empty/unreadable.
+    """
+    raw_path = os.environ.get(_EXTERNAL_STEER_ENV)
+    if not raw_path:
+        return ""
+    try:
+        import fcntl
+    except ImportError:  # non-POSIX: best-effort without locking
+        fcntl = None  # type: ignore[assignment]
+    try:
+        with open(raw_path, "r+", encoding="utf-8") as fh:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                except OSError:
+                    pass
+            try:
+                raw = fh.read()
+                if raw:
+                    fh.seek(0)
+                    fh.truncate(0)
+            finally:
+                if fcntl is not None:
+                    try:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+    except (OSError, ValueError):
+        return ""
+
+    texts: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        text = item.get("text") if isinstance(item, dict) else item
+        text = str(text or "").strip()
+        if text:
+            texts.append(text[:_EXTERNAL_STEER_MAX_CHARS])
+        if len(texts) >= _EXTERNAL_STEER_MAX_MESSAGES:
+            break
+    return "\n\n".join(texts)
+
+
 def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: int) -> None:
     """Persist any pending /steer text as a standalone user message.
 
@@ -3537,6 +3603,9 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
     if num_tool_msgs <= 0 or not messages:
         return
     steer_text = agent._drain_pending_steer()
+    external = _drain_external_steer()
+    if external:
+        steer_text = f"{steer_text}\n\n{external}" if steer_text else external
     if not steer_text:
         return
     # Skip non-tool messages in the tail in case something else is appended at the boundary.

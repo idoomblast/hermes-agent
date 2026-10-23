@@ -665,6 +665,11 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
 
   const detailScrollRef = useRef<null | ScrollBoxHandle>(null)
   const prevLiveCountRef = useRef(liveSubagents.length)
+  // Live roster count read at timer-fire time: `subagent.list` polls every
+  // 1.5s, so an external dispatch can briefly vanish right after `idle()`
+  // clears turn state and reappear on the next snapshot poll.
+  const liveCountRef = useRef(liveSubagents.length)
+  liveCountRef.current = liveSubagents.length
 
   // ── Derived state ──────────────────────────────────────────────────
 
@@ -719,9 +724,18 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
     prevLiveCountRef.current = liveSubagents.length
 
     if (historyIndex === 0 && prev > 0 && liveSubagents.length === 0 && history.length > 0) {
-      setHistoryIndex(1)
-      setCursor(0)
-      setFlash(messages().hubs.agents.flash.turnFinished)
+      // Grace period: background/external subagents outlive the turn that
+      // spawned them.  Their live record can be missing for one snapshot poll
+      // right after idle(), which used to strand the overlay in a stale
+      // turn-end replay while the agent was still running.
+      const timer = setTimeout(() => {
+        if (liveCountRef.current === 0) {
+          setHistoryIndex(1)
+          setCursor(0)
+          setFlash(messages().hubs.agents.flash.turnFinished)
+        }
+      }, 2500)
+      return () => clearTimeout(timer)
     }
   }, [history.length, historyIndex, liveSubagents.length])
 

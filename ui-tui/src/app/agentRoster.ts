@@ -2,6 +2,8 @@ import { useStore } from '@nanostores/react'
 import { atom } from 'nanostores'
 import { useMemo } from 'react'
 
+import type { SubagentStatus } from '@hermes/shared/gateway-events'
+
 import type { SubagentListResponse } from '../gatewayTypes.js'
 import type { SubagentProgress } from '../types.js'
 
@@ -27,6 +29,7 @@ export function mergeAgentRoster(events: SubagentProgress[], data: SubagentListR
 
   for (const [index, s] of data.subagents.entries()) {
     const previous = merged.get(s.subagent_id)
+    const snapshotStatus = (s.status as SubagentStatus | null) ?? 'running'
     merged.set(s.subagent_id, {
       depth: s.depth ?? 0,
       index,
@@ -41,7 +44,9 @@ export function mergeAgentRoster(events: SubagentProgress[], data: SubagentListR
       model: s.model ?? previous?.model,
       startedAt: s.started_at != null ? s.started_at * 1000 : previous?.startedAt,
       // Snapshot replies may predate progress/completion events already rendered.
-      status: previous && previous.status !== 'queued' ? previous.status : s.status === 'queued' ? 'queued' : 'running',
+      // With no live event row, trust the registry status: external/background
+      // dispatches outlive the turn and their completion only exists here.
+      status: previous && previous.status !== 'queued' ? previous.status : snapshotStatus,
       toolCount: Math.max(s.tool_count ?? 0, previous?.toolCount ?? 0),
       tools: previous?.tools.length ? previous.tools : s.last_tool ? [s.last_tool] : []
     })

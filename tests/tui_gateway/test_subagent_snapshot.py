@@ -71,6 +71,7 @@ def test_snapshot_projects_only_this_sessions_runtime_records(runtime):
         snapshot = call("subagent.list")["result"]
         assert [s["subagent_id"] for s in snapshot["subagents"]] == ["child"]
         assert snapshot["subagents"][0]["last_tool"] == "read_file"
+        assert snapshot["subagents"][0]["tools"] == ["read_file"]
         assert snapshot["delegations"] == []
         assert snapshot["subagents"][0]["tool_count"] == 1
         wire = json.dumps(snapshot)

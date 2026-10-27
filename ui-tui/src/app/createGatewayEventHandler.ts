@@ -414,7 +414,7 @@ const pushUnique =
 
 const pushThinking = pushUnique(6)
 const pushNote = pushUnique(6)
-const pushTool = pushUnique(8)
+const pushTool = pushUnique(50)
 
 const KNOWN_SUBAGENT_STATUSES = new Set<SubagentStatus>([
   'completed',

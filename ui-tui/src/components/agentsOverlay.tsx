@@ -367,7 +367,11 @@ function Detail({ id, node, t }: { id?: string; node: SubagentNode; t: Theme }) 
   // Tool calls: prefer the live stream; for archived / post-turn views
   // that stream is often empty even when tool_count > 0, so fall back to
   // the tool names captured in outputTail at subagent.complete time.
-  const toolLines = item.tools.length > 0 ? item.tools : outputTail.map(e => e.tool).filter(Boolean)
+  const toolLines = item.tools.length > 0
+    ? item.tools
+    : outputTail
+        .map(e => (e.preview ? `${e.tool} · ${e.preview}` : e.tool))
+        .filter(Boolean)
 
   const filesOverflow = Math.max(0, filesRead.length - 8) + Math.max(0, filesWritten.length - 8)
 

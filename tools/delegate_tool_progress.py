@@ -398,6 +398,15 @@ class _ChildProgressRelay:
                 if rec is not None:
                     rec["tool_count"] = self.tool_count
                     rec["last_tool"] = tool_name or ""
+                    # Snapshot viewers (`subagent.list`) only see the record: keep a
+                    # bounded display list so a background child's detail still shows
+                    # its tool calls after the spawning turn ended.
+                    tools = rec.setdefault("tools", [])
+                    line = (f"{tool_name} · {_short(preview, 120)}"
+                            if preview else (tool_name or ""))
+                    if line and (not tools or tools[-1] != line):
+                        tools.append(line)
+                        del tools[:-50]
         if self.spinner:
             from agent.display import get_tool_emoji
             line = f"{get_tool_emoji(tool_name or '')} {tool_name}"

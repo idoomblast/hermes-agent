@@ -2240,6 +2240,7 @@ export interface SubagentSnapshot {
   status?: SubagentStatus | null
   tool_count?: number | null
   last_tool?: string | null
+  tools?: string[]
   accepting_steer?: boolean | null
 }
 /** Lifecycle of one delegated child (``tools/delegate_tool_child_run.py``); ``failed`` / ``error`` / ``timeout`` / ``interrupted`` / ``completed`` are terminal. */

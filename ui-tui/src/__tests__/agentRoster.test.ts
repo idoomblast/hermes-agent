@@ -38,6 +38,30 @@ it('lets the agents shortcut leave the composer without stealing redo', () => {
   expect(shouldPassThroughToGlobalHandler('y', key)).toBe(false)
 })
 
+it('prefers the snapshot tool list over a single last_tool fallback', () => {
+  const data = {
+    subagents: [
+      {
+        subagent_id: 'background',
+        status: 'running',
+        tool_count: 3,
+        last_tool: 'terminal',
+        tools: ['read_file("/a")', 'search_files("needle")', 'terminal("ls")']
+      }
+    ],
+    delegations: []
+  }
+
+  const [row] = mergeAgentRoster([], data)
+  expect(row?.tools).toEqual(['read_file("/a")', 'search_files("needle")', 'terminal("ls")'])
+
+  const [fallback] = mergeAgentRoster([], {
+    subagents: [{ subagent_id: 'old', tool_count: 1, last_tool: 'terminal' }],
+    delegations: []
+  })
+  expect(fallback?.tools).toEqual(['terminal'])
+})
+
 it('merges one row per actual child and does not notify unchanged snapshots', () => {
   const data = {
     subagents: [{ subagent_id: 'child', delegation_id: 'batch', goal: 'inspect', started_at: 1 }],

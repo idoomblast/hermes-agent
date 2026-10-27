@@ -11,7 +11,7 @@ method = _registry.method
 
 _SUBAGENT_SNAPSHOT_FIELDS = (
     "subagent_id", "parent_id", "depth", "goal", "delegation_id", "model",
-    "started_at", "status", "tool_count", "last_tool", "accepting_steer",
+    "started_at", "status", "tool_count", "last_tool", "tools", "accepting_steer",
 )
 _SUBAGENT_TAIL_BYTES = 16384
 
@@ -58,9 +58,16 @@ def _(rid, params):
         return _err(rid, 4001, "session not found or not owned by this transport")
     live = _visible_subagent_records(session_id, transport, owner)
     return _ok(rid, {
-        "subagents": [{key: r.get(key) for key in _SUBAGENT_SNAPSHOT_FIELDS} for r in live],
+        "subagents": [_snapshot_row(r) for r in live],
         "delegations": _failed_delegations(session_id, owner),
     })
+
+
+def _snapshot_row(record):
+    """Project one live record onto the wire; `tools` is always a list."""
+    row = {key: record.get(key) for key in _SUBAGENT_SNAPSHOT_FIELDS}
+    row["tools"] = list(record.get("tools") or [])
+    return row
 
 
 def _failed_delegations(session_id, owner):

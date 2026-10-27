@@ -48,10 +48,13 @@ export function mergeAgentRoster(events: SubagentProgress[], data: SubagentListR
       // dispatches outlive the turn and their completion only exists here.
       status: previous && previous.status !== 'queued' ? previous.status : snapshotStatus,
       toolCount: Math.max(s.tool_count ?? 0, previous?.toolCount ?? 0),
-      tools: previous?.tools.length
-        ? previous.tools
-        : s.tools?.length
-          ? s.tools
+      // The snapshot carries the long history (up to 50) for background
+      // dispatches whose live events ended with the spawning turn. Fall back to
+      // the live rows only while the snapshot has not caught up yet.
+      tools: s.tools?.length
+        ? s.tools
+        : previous?.tools.length
+          ? previous.tools
           : s.last_tool
             ? [s.last_tool]
             : []

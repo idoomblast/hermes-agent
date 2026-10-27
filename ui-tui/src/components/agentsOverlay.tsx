@@ -680,7 +680,13 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
   const activeSnapshot = historyIndex > 0 ? history[historyIndex - 1] : null
   // Instant fallback to history[0] the moment the live list clears — avoids
   // a one-frame "no subagents" flash while the auto-follow effect fires.
-  const justFinishedSnapshot = historyIndex === 0 && liveSubagents.length === 0 ? (history[0] ?? null) : null
+  // Do not swap an open detail/tail pane onto the archived turn snapshot:
+  // the live list clears the moment a background dispatch unregisters, and
+  // the archived copy may not carry its tool history (or the agent at all).
+  // The pinned node keeps the pane stable; the replay fallback applies again
+  // once the user is back in list mode.
+  const justFinishedSnapshot =
+    historyIndex === 0 && liveSubagents.length === 0 && mode === 'list' ? (history[0] ?? null) : null
   const effectiveSnapshot = activeSnapshot ?? justFinishedSnapshot
   const replayMode = effectiveSnapshot != null
   const subagents = replayMode ? effectiveSnapshot.subagents : liveSubagents
@@ -693,6 +699,17 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
   const rows = useMemo(() => prepareRows(tree, sort, filter), [tree, sort, filter])
 
   const selected = rows[cursor] ?? null
+  // Reading detail/tail must not blank when the live roster refreshes: a
+  // finished or unregistered dispatch drops out of `subagents`, which made
+  // `selected` null and rendered an empty detail pane mid-read. Keep the last
+  // node we actually showed and fall back to it while a pane is open.
+  const lastSelectedRef = useRef<SubagentNode | null>(null)
+
+  if (selected) {
+    lastSelectedRef.current = selected
+  }
+
+  const shown = selected ?? (mode === 'detail' || mode === 'tail' ? lastSelectedRef.current : null)
 
   const cols = stdout?.columns ?? 80
 
@@ -727,6 +744,14 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
     const prev = prevLiveCountRef.current
     prevLiveCountRef.current = liveSubagents.length
 
+    // Never yank the user out of an open detail/tail pane: the turn may
+    // finish while they are reading it, and switching snapshot + cursor
+    // resets the scroll position and can drop the dispatch they were
+    // looking at from the roster entirely.
+    if (mode !== 'list') {
+      return
+    }
+
     if (historyIndex === 0 && prev > 0 && liveSubagents.length === 0 && history.length > 0) {
       // Grace period: background/external subagents outlive the turn that
       // spawned them.  Their live record can be missing for one snapshot poll
@@ -741,12 +766,18 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
       }, 2500)
       return () => clearTimeout(timer)
     }
-  }, [history.length, historyIndex, liveSubagents.length])
+  }, [history.length, historyIndex, liveSubagents.length, mode])
 
   useEffect(() => {
     // Reset detail scroll on navigation so the top of the new node shows.
     detailScrollRef.current?.scrollTo(0)
   }, [cursor, historyIndex, mode])
+
+  useEffect(() => {
+    // A history step loads a different snapshot; never keep the previous
+    // turn's node pinned across it.
+    lastSelectedRef.current = null
+  }, [historyIndex])
 
   useEffect(() => {
     // A control acknowledgement or newer hydration must win over this request.
@@ -1011,7 +1042,7 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
 
       {mode === 'steer' && selected && sid ? (
         <AgentSteerForm cols={cols} gw={gw} id={selected.item.id} onClose={() => setMode('detail')} sid={sid} t={t} />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !shown ? (
         <Box flexDirection="column" flexGrow={1}>
           <Text color={t.color.muted}>{T.empty}</Text>
           <ProcessesSection cols={cols - 2} rows={processRows} t={t} />
@@ -1047,10 +1078,10 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
             stickyScroll={mode === 'tail'}
           >
             <Box flexDirection="column" paddingBottom={4} paddingRight={1}>
-              {selected && mode === 'tail' && sid && !replayMode ? (
-                <AgentLiveTail gw={gw} id={selected.item.id} key={selected.item.id} sid={sid} t={t} />
-              ) : selected ? (
-                <Detail id={selected.item.id} node={selected} t={t} />
+              {shown && mode === 'tail' && sid && !replayMode ? (
+                <AgentLiveTail gw={gw} id={shown.item.id} key={shown.item.id} sid={sid} t={t} />
+              ) : shown ? (
+                <Detail id={shown.item.id} node={shown} t={t} />
               ) : null}
             </Box>
           </ScrollBox>

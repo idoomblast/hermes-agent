@@ -70,6 +70,28 @@ class TestCreateIfMissingFlagParsing:
         assert getattr(args, "create_if_missing", False) is False
 
 
+class TestLaunchPolicyFromArgs:
+    def test_zero_max_turns_is_frozen_as_a_value(self):
+        """`--max-turns 0` must survive the create freeze; `0 == False` used to drop it."""
+        from hermes_cli._parser import build_top_level_parser
+        from hermes_cli.main import _launch_policy_from_args
+
+        parser, _subparsers, _chat_parser = build_top_level_parser()
+        args = parser.parse_args(
+            ["chat", "-c", "Bot Chat", "--create-if-missing", "--max-turns", "0", "-q", "hi"]
+        )
+        assert args.max_turns == 0
+        assert _launch_policy_from_args(args)["max_turns"] == 0
+
+    def test_unset_flags_stay_out_of_the_policy(self):
+        from hermes_cli._parser import build_top_level_parser
+        from hermes_cli.main import _launch_policy_from_args
+
+        parser, _subparsers, _chat_parser = build_top_level_parser()
+        args = parser.parse_args(["chat", "-c", "Bot Chat", "--create-if-missing", "-q", "hi"])
+        assert "max_turns" not in _launch_policy_from_args(args)
+
+
 class TestCreateTitledSession:
     def test_creates_session_with_title(self, isolated_home):
         sid = _create_titled_session("Bot Chat")

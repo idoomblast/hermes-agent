@@ -1380,7 +1380,24 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
     return None
 
 
-def _create_titled_session(title: str) -> Optional[str]:
+def _launch_policy_from_args(args) -> dict:
+    """argparse's explicit launch flags as a gateway ``session.create`` policy.
+
+    ``-c <name> --create-if-missing`` creates the row before the CLI exists, so this argparse
+    namespace is the only place the run's flags (``-s/--skills``, ``-m``, ``--provider``,
+    ``--reasoning``, ...) are available. The row must freeze them: the caller resumes that id
+    immediately and a resume refuses flags that differ from the frozen launch.
+    """
+    from hermes_cli.gateway_session_store import _LAUNCH_POLICY
+    values = {key: getattr(args, key, None) for key in (*_LAUNCH_POLICY, "run_budget", "verbose")}
+    # Unset flags stay out of the policy: a bare `-c <title> --create-if-missing` must keep the
+    # historical one-argument create (and not send a bag of nulls to session.create). Identity, not
+    # equality: `--max-turns 0` (unlimited) is a value, while `0 == False` would drop it.
+    return {key: value for key, value in values.items()
+            if value is not None and value is not False}
+
+
+def _create_titled_session(title: str, launch: Optional[dict] = None) -> Optional[str]:
     """Create a fresh titled session (``chat -c <title> --create-if-missing``).
 
     The gateway is the single writer: it creates the session and records the title with user
@@ -1392,7 +1409,9 @@ def _create_titled_session(title: str) -> Optional[str]:
     """
     try:
         from hermes_cli.gateway_session_store import create_titled_session
-        return create_titled_session(title)
+        if launch is None:
+            return create_titled_session(title)
+        return create_titled_session(title, launch=launch)
     except Exception:
         # Programmatic callers rely on --create-if-missing being deterministic;
         # swallow the failure but log the cause so it lands in errors.log
@@ -1424,11 +1443,14 @@ def _resolve_continue_arg(args, *, use_tui: bool) -> None:
                 # --create-if-missing: no session matches the title — create a new session with that title
                 # and proceed. See #86794. The classic CLI's gateway writes it (the single writer);
                 # the TUI keeps main's local row.
+                launch = _launch_policy_from_args(args) or None
                 if use_tui:
-                    new_sid = _create_titled_session(continue_val)
+                    new_sid = (_create_titled_session(continue_val, launch) if launch
+                               else _create_titled_session(continue_val))
                 else:
                     from hermes_cli.gateway_session_store import create_titled_session
-                    new_sid = create_titled_session(continue_val)
+                    new_sid = (create_titled_session(continue_val, launch=launch) if launch
+                               else create_titled_session(continue_val))
                 if new_sid:
                     args.resume = new_sid
                 else:

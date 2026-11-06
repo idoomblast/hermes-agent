@@ -420,6 +420,25 @@ def test_create_if_missing_titles_a_gateway_created_session(store, monkeypatch):
     assert params["title"] == "Fresh Named" and params["source"] and params["cwd"]
 
 
+def test_create_if_missing_freezes_launch_flags_for_the_immediate_resume(store, monkeypatch):
+    """``-c NAME --create-if-missing -s <skills>`` must create the row with those flags.
+
+    The CLI resumes the returned id immediately, and a resume refuses any flag that differs
+    from the row's frozen ``launch_request``. Creating it with an empty policy made the very
+    ``--skills`` that asked for the session fail the resume ("Resume retains gateway session
+    policy"), which broke every specialist-fleet dispatch.
+    """
+    db, client = store
+    from hermes_cli import gateway_session_store as gss
+    monkeypatch.setattr(gss, "session_store", lambda: db)
+    launch = {"skills": ["requesting-code-review"], "model": "gpt-6.1-sol", "provider": "custom"}
+    assert gss.create_titled_session("Skills Named", launch=launch) == "local-new"
+    _method, params = [c for c in client.calls if c[0] == "session.create"][-1]
+    assert params["skills"] == ["requesting-code-review"]
+    assert params["model"] == "gpt-6.1-sol"
+    assert params["provider"] == "custom"
+
+
 def test_bare_continue_finds_the_last_session_the_cli_created(tmp_path, monkeypatch):
     """Bare ``-c`` (main.py ``_resolve_last_session``) reads main's labels too: a gateway row labelled
     ``local`` that the CLI created is CLI history."""

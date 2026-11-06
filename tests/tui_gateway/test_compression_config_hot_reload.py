@@ -326,3 +326,34 @@ def test_apply_live_compression_config_is_self_contained():
     _apply_live_compression_config(agent, {"compression": {"enabled": True}})
     assert agent.compression_enabled is True
     assert agent.codex_responses_native_compaction is False
+
+
+def test_signature_tracks_custom_provider_context_pins():
+    """A per-model custom_providers pin must re-apply on the next TUI turn.
+
+    The signature drives ``_sync_agent_model_with_config``: without the pin in
+    it, editing ``custom_providers[].models.<m>.context_length`` stayed
+    invisible to an open session until the process restarted.
+    """
+    from tui_gateway.session_compression import _tui_compression_config_signature
+
+    def cfg(context_length):
+        return {
+            "model": {"default": "glm-5.3", "provider": "custom:omniidoomai"},
+            "compression": {},
+            "custom_providers": [
+                {
+                    "name": "OmniIdoomAI",
+                    "base_url": "https://omni.idoom.me/v1",
+                    "models": {"glm-5.3": {"context_length": context_length}},
+                }
+            ],
+        }
+
+    sig_a = _tui_compression_config_signature(cfg(512_000))
+    sig_b = _tui_compression_config_signature(cfg(262_144))
+
+    assert dict(sig_a)["custom_providers.context_lengths"] == (
+        ("https://omni.idoom.me/v1", "glm-5.3", "512000"),
+    )
+    assert sig_a != sig_b

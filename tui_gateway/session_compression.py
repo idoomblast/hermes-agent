@@ -16,7 +16,11 @@ def _tui_compression_config_signature(cfg: dict | None) -> tuple:
     cache-busting extract plus ``idle_compact_after_seconds``/``tail_mode`` (live-TUI-only keys)."""
     from gateway.run import GatewayRunner
     keys = GatewayRunner._extract_cache_busting_config(cfg)
-    picked = {k: v for k, v in keys.items() if k.startswith("compression.") or k == "model.context_length"}
+    # ``custom_providers.context_lengths`` rides along from the cache-busting extract: a per-model
+    # custom-provider pin is a first-class context override (same standing as ``model.context_length``),
+    # so editing one must re-apply on the next turn without restarting the TUI.
+    _context_keys = ("model.context_length", "custom_providers.context_lengths")
+    picked = {k: v for k, v in keys.items() if k.startswith("compression.") or k in _context_keys}
     compression = cfg.get("compression") if isinstance(cfg, dict) and isinstance(cfg.get("compression"), dict) else {}
     picked.update({f"compression.{k}": compression.get(k) for k in ("idle_compact_after_seconds", "tail_mode")})
     return tuple(sorted(picked.items()))

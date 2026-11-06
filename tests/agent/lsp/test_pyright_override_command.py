@@ -3,6 +3,8 @@ from agent.lsp.servers import ServerContext, _resolve_override, _spawn_pyright
 
 def test_path_resolvable_override_keeps_custom_pyright_arguments(monkeypatch, tmp_path):
     monkeypatch.setattr("agent.lsp.servers.shutil.which", lambda command: "/usr/bin/ty" if command == "ty" else None)
+    monkeypatch.setattr("agent.lsp.servers._detect_python", lambda root: "/usr/bin/python3")
+    monkeypatch.setattr("pm.env_for", lambda package: {"PATH": "/usr/bin"})
 
     ctx = ServerContext(
         workspace_root=str(tmp_path),

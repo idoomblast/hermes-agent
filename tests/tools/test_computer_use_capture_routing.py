@@ -259,10 +259,10 @@ def _route(provider, model, cfg, *, catalog, provider_takes_media, veto=False):
 class TestRouteDecision:
     """True = pre-analyse via auxiliary.vision, False = the multimodal envelope (#115248)."""
 
-    def test_explicit_aux_backend_wins_over_a_vision_main_model(self):
-        """#24015: a configured auxiliary.vision backend is the de-facto image route in auto mode."""
+    def test_explicit_aux_backend_does_not_override_a_vision_main_model(self):
+        """Fork policy: auxiliary.vision is the fallback describer, not an override in auto mode."""
         cfg = {"auxiliary": {"vision": {"provider": "openrouter", "model": "google/gemini-2.5-flash"}}}
-        assert _route("anthropic", "claude-opus-4-5", cfg, catalog=True, provider_takes_media=True) is True
+        assert _route("anthropic", "claude-opus-4-5", cfg, catalog=True, provider_takes_media=True) is False
 
     def test_vision_main_model_without_aux_backend_stays_native(self):
         assert _route("anthropic", "claude-opus-4-5", {}, catalog=True, provider_takes_media=True) is False

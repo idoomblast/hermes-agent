@@ -176,7 +176,8 @@ def _mcp_native_image_part(path: str) -> Optional[tuple[dict[str, Any], Optional
 def _mcp_result_with_native_images(text: str, image_paths: list[str]) -> Any:
     """*text* as-is, or the ``_multimodal`` envelope carrying the call's cached images when the active route
     takes images inside tool results — the same gate as ``vision_analyze`` and ``computer_use`` captures
-    (``agent.image_input_mode``, an explicit ``auxiliary.vision`` backend, catalog vision, provider support).
+    (``agent.image_input_mode``, the model's catalog/config vision, provider support; an explicit
+    ``auxiliary.vision`` backend is only the describer fallback for models without native vision).
     The text half keeps the ``MEDIA:`` paths so sharing and full-resolution reads still work. Any failure
     keeps the text: the paths already carry the images."""
     if not image_paths:

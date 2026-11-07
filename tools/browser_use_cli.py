@@ -923,7 +923,7 @@ _TEXT_FIRST = (
 )
 
 # The non-native header states a transport fact (screenshots do not ride back inside THIS
-# tool's results: routing is not ``native`` — e.g. an explicit ``auxiliary.vision`` pin — or
+# tool's results: routing is not ``native`` — the model has no catalog/config vision — or
 # the route rejects tool-result media), never a verdict on the model's own vision: models
 # quote "your model cannot view images" against themselves and skip user images (#131568).
 # model_tools.get_tool_definitions() appends the vision_analyze pointer after

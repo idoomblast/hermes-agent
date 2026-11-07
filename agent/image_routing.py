@@ -3,10 +3,11 @@
 ``native`` attaches images as OpenAI-style ``image_url`` parts; ``text`` runs
 ``vision_analyze`` up-front and prepends the lossy description (right for
 non-vision models). :func:`decide_image_input_mode` picks once per turn from
-``agent.image_input_mode`` (``auto`` | ``native`` | ``text``): in ``auto`` an
-explicit ``auxiliary.vision`` backend forces ``text`` even for vision-capable
-main models (``native`` is the absolute override); else ``supports_vision``
-(config override or catalog) decides. ``vision_analyze`` stays a tool regardless.
+``agent.image_input_mode`` (``auto`` | ``native`` | ``text``): in ``auto`` the
+main model's ``supports_vision`` (config override or catalog) decides, and an
+explicit ``auxiliary.vision`` backend is only the fallback describer used when
+that model has no native vision; ``native`` and ``text`` force the lane.
+``vision_analyze`` stays a tool regardless.
 """
 
 from __future__ import annotations

@@ -573,9 +573,10 @@ def _accepts_tool_result_images(provider: str, model: str, cfg: Optional[dict[st
 def _native_tool_result_images(provider: str, model: str, cfg: Optional[dict[str, Any]]) -> bool:
     """THE gate for every tool that can hand the main model pixels (``vision_analyze``, browser and
     ``computer_use`` screenshots, MCP ``ImageContent``): image routing resolves to ``native``
-    (``agent.image_input_mode``, an explicit ``auxiliary.vision`` backend, the catalog) AND the
-    route accepts images inside tool results. One predicate, so the lane never depends on which
-    tool produced the image."""
+    (``agent.image_input_mode`` plus the model's catalog/config vision; an explicit
+    ``auxiliary.vision`` backend only supplies the describer when that model has no native vision)
+    AND the route accepts images inside tool results. One predicate, so the lane never depends on
+    which tool produced the image."""
     from agent.image_routing import decide_image_input_mode
     return decide_image_input_mode(provider, model, cfg) == "native" and _accepts_tool_result_images(provider, model, cfg)
 

@@ -593,7 +593,7 @@ Two behaviors apply to every MCP tool result before the model sees it:
 
 ### Image results
 
-An `ImageContent` block (a screenshot, a rendered chart, a page capture) is saved to Hermes' image cache and its path is reported in the result as `MEDIA:/path/to/image.png`, so you can ask for the file on any attachment-capable surface. When the main model can see images inside tool results, the image itself is attached to the result too, so the model reads the pixels directly. MCP results follow the same rule as `vision_analyze`: `agent.image_input_mode`, an explicit `auxiliary.vision` backend and the model's vision capability all apply (see [Vision](vision.md#vision_analyze-has-the-same-dual-behavior)). Attached images are downscaled to `vision.embed_target_bytes` (up to 4 per result) because they are re-sent on every later turn. Text-only models get the path only.
+An `ImageContent` block (a screenshot, a rendered chart, a page capture) is saved to Hermes' image cache and its path is reported in the result as `MEDIA:/path/to/image.png`, so you can ask for the file on any attachment-capable surface. When the main model can see images inside tool results, the image itself is attached to the result too, so the model reads the pixels directly. MCP results follow the same rule as `vision_analyze`: `agent.image_input_mode`, the model's vision capability and provider support all apply; an explicit `auxiliary.vision` backend is only the describer fallback for models without native vision (see [Vision](vision.md#vision_analyze-has-the-same-dual-behavior)). Attached images are downscaled to `vision.embed_target_bytes` (up to 4 per result) because they are re-sent on every later turn. Text-only models get the path only.
 
 ## MCP utility tools
 

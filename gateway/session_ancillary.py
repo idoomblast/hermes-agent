@@ -258,6 +258,15 @@ def _read_projection(authority, live, ref, params, kind):
             raise
 
 
+def _subagent_row(record):
+    row = {key: record.get(key) for key in _SUBAGENT_FIELDS}
+    # The wire contract declares ``tools`` as a non-null list, and the dispatcher validates
+    # every successful result against it: a child registers before its first tool call, so the
+    # registry has no key yet. The legacy projection normalised that to an empty list too.
+    row['tools'] = list(row['tools'] or [])
+    return row
+
+
 def _project(authority, ref, params, kind):
     if kind == 'control':
         # Persisted per session id, never the route's live objects: readable after a messaging
@@ -266,8 +275,7 @@ def _project(authority, ref, params, kind):
     _require_current_route(authority, ref)
     agent, records = _owner_objects(authority, ref, include_fallback_evicted=kind == 'subagents')
     if kind == 'subagents':
-        return {'subagents': [{key: record.get(key) for key in _SUBAGENT_FIELDS}
-                              for record in records], 'delegations': []}
+        return {'subagents': [_subagent_row(record) for record in records], 'delegations': []}
     if kind == 'tail':
         return subagent_tail(records, params['subagent_id'])
     return {'processes': process_snapshot(authority, ref, agent, records)}

@@ -16,6 +16,10 @@ from hermes_state_runtime import RuntimeStoreError
 _SUBAGENT_FIELDS = (
     'subagent_id', 'parent_id', 'depth', 'goal', 'delegation_id', 'model',
     'started_at', 'status', 'tool_count', 'last_tool', 'accepting_steer',
+    # The shared contract (SubagentSnapshot) already declares `tools`, and the
+    # legacy projection carries it; without it the canonical client's detail
+    # pane can only fall back to `last_tool`, so a 13-tool child lists one.
+    'tools',
 )
 _TAIL_BYTES = 16384
 _PROCESS_TAIL_CHARS = 32768  # main's dock tail view (cli_process_dock.process_tail)
